@@ -37,14 +37,17 @@ if __name__=='__main__':
                       'graph_file': './Database/citeseer/edges.txt',
                       'walks_file': './Database/citeseer/walks.txt',
                       'label_file': './Database/citeseer/group.txt',
+                      'curvature_file': './Database/citeseer/curvature.txt',
                       'device': device}
     graph = Dataset(dataset_config)
 
     pretrain_config = {
         'net_shape': [256, 64, 6],
         'att_shape': [500, 100, 6],
+        'cv_shape': [256, 64, 6],
         'net_input_dim': graph.num_nodes,
         'att_input_dim': graph.num_feas,
+        'cv_input_dim': graph.num_curv,
         'seed': 42,
         'pre_iterations': 100,
         'pretrain_params_path': './Log/citeseer/pretrain_params.pkl'}
@@ -53,8 +56,10 @@ if __name__=='__main__':
         'device': device,
         'net_shape': [256, 64, 6],
         'att_shape': [500, 100, 6],
+        'cv_shape': [256, 64, 6],
         'net_input_dim': graph.num_nodes,
         'att_input_dim': graph.num_feas,
+        'cv_input_dim': graph.num_curv,
         'is_init': True,
         'pretrain_params_path': './Log/citeseer/pretrain_params.pkl',
         'tau': 1.5,
@@ -69,10 +74,11 @@ if __name__=='__main__':
         'model_path': './Log/citeseer/citeseer_model.pkl'
     }
 
-    # 'Pre-training stage'
-    # pretrainer = PreTrainer(pretrain_config)
-    # pretrainer.pre_training(graph.A.detach().cpu().numpy(), 'net')
-    # pretrainer.pre_training(graph.X.t().detach().cpu().numpy(), 'att')
+    'Pre-training stage'
+    pretrainer = PreTrainer(pretrain_config)
+    pretrainer.pre_training(graph.A.detach().cpu().numpy(), 'net')
+    pretrainer.pre_training(graph.X.t().detach().cpu().numpy(), 'att')
+    pretrainer.pre_training(graph.C.detach().cpu().numpy(), 'cv')
 
 
     learning_rate = model_config['learning_rate']

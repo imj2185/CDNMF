@@ -10,6 +10,7 @@ class PreTrainer(object):
         self.config = config
         self.net_shape = config['net_shape']
         self.att_shape = config['att_shape']
+        self.cv_shape = config['cv_shape']
         self.pretrain_params_path = config['pretrain_params_path']
         self.seed = config['seed']
         self.pre_iterations = config['pre_iterations']
@@ -51,6 +52,9 @@ class PreTrainer(object):
             Pre-training each NMF layer.
             """
             print("\nLayer pre-training started. \n")
+            
+        elif module == 'cv':
+            self.layers = self.cv_shape
 
         for i in tqdm(range(len(self.layers)), desc="Layers trained: ", leave=True):
                 self.setup_z(i, module)

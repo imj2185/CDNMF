@@ -8,18 +8,21 @@ class Dataset(object):
     def __init__(self, config):
         self.graph_file = config['graph_file']
         self.feature_file = config['feature_file']
+        self.curvature_file = config['curvature_file']
         self.label_file = config['label_file']
         self.walks_file = config['walks_file']
         self.device = config['device']
 
-        self.A, self.X, self.W, self.L, self.num_classes = self._load_data()
+        self.A, self.X, self.C, self.W, self.L, self.num_classes = self._load_data()
 
         self.num_nodes = self.A.shape[0]
         self.num_feas = self.X.shape[1]
+        self.num_curv = self.C.shape[0]
         self.num_edges = np.sum(self.A) / 2
 
         self.A = torch.tensor(self.A, dtype=torch.float32, device=self.device)
         self.X = torch.tensor(self.X, dtype=torch.float32, device=self.device)
+        self.C = torch.tensor(self.C, dtype=torch.float32, device=self.device)
         self.W = torch.tensor(self.W, dtype=torch.float32, device=self.device)
         self.L = torch.tensor(self.L, dtype=torch.float32, device=self.device)
         print('nodes {}, edes {}, features {}, classes {}'.format(self.num_nodes, self.num_edges, self.num_feas, self.num_classes))
@@ -79,6 +82,9 @@ class Dataset(object):
             A[idx1, idx2] = 1.0
 
 
+        #=========load curvs=======
+        C = np.loadtxt(self.curvature_file, dtype=int)
+        C = C + 2
 
         #=========load walks========
         W = np.zeros((num_nodes, num_nodes))
@@ -91,7 +97,7 @@ class Dataset(object):
             W[idx2, idx1] = 1.0
             W[idx1, idx2] = 1.0
 
-        return A, X, W, L, num_classes
+        return A, X, C, W, L, num_classes
 
 
 

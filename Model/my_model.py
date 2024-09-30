@@ -17,8 +17,10 @@ class Model(torch.nn.Module):
         self.device = config['device']
         self.net_shape = config['net_shape']
         self.att_shape = config['att_shape']
+        self.cv_shape = config['cv_shape']
         self.net_input_dim = config['net_input_dim']
         self.att_input_dim = config['att_input_dim']
+        self.cv_input_dim = config['cv_input_dim']
         self.is_init = config['is_init']
         self.pretrain_params_path = config['pretrain_params_path']
         self.tau = config['tau']
@@ -31,8 +33,11 @@ class Model(torch.nn.Module):
         self.fc1 = torch.nn.Linear(self.net_shape[-1], self.net_shape[1])
         self.fc2 = torch.nn.Linear(self.net_shape[1], self.net_shape[0])
 
-        self.fc3 = torch.nn.Linear(self.att_shape[-1], self.net_shape[1])
-        self.fc4 = torch.nn.Linear(self.net_shape[1], self.net_shape[0])
+        self.fc3 = torch.nn.Linear(self.att_shape[-1], self.att_shape[1])
+        self.fc4 = torch.nn.Linear(self.att_shape[1], self.att_shape[0])
+        
+        self.fc5 = torch.nn.Linear(self.cv_shape[-1], self.cv_shape[1])
+        self.fc6 = torch.nn.Linear(self.cv_shape[1], self.cv_shape[0])
 
         self.U = torch.nn.ParameterDict({})
         self.V = torch.nn.ParameterDict({})
@@ -56,6 +61,13 @@ class Model(torch.nn.Module):
                 name = module + str(i)
                 self.U[name] = torch.nn.Parameter(torch.tensor(self.U_init[name], dtype=torch.float32))
             self.V[name] = torch.nn.Parameter(torch.tensor(self.V_init[name], dtype=torch.float32))
+            
+            module = 'cv'
+            # print(len(self.net_shape))
+            for i in range(len(self.cv_shape)):
+                name = module + str(i)
+                self.U[name] = torch.nn.Parameter(torch.tensor(self.U_init[name], dtype=torch.float32))
+            self.V[name] = torch.nn.Parameter(torch.tensor(self.V_init[name], dtype=torch.float32))
         else:
             module = 'net'
             # print(len(self.net_shape))
@@ -70,6 +82,13 @@ class Model(torch.nn.Module):
                 name = module + str(i)
                 self.U[name] = torch.nn.Parameter(torch.rand_like(torch.tensor(self.U_init[name]), dtype=torch.float32))
             self.V[name] = torch.nn.Parameter(torch.rand_like(torch.tensor(self.V_init[name]), dtype=torch.float32))
+            
+            module = 'cv'
+            # print(len(self.net_shape))
+            for i in range(len(self.cv_shape)):
+                name = module + str(i)
+                self.U[name] = torch.nn.Parameter(torch.rand_like(torch.tensor(self.U_init[name], dtype=torch.float32)))
+            self.V[name] = torch.nn.Parameter(torch.rand_like(torch.tensor(self.V_init[name], dtype=torch.float32)))
 
     def projection1(self, z: torch.Tensor) -> torch.Tensor:
         z = F.elu(self.fc1(z.t()))
@@ -78,6 +97,10 @@ class Model(torch.nn.Module):
     def projection2(self, z: torch.Tensor) -> torch.Tensor:
         z = F.elu(self.fc3(z.t()))
         return self.fc4(z)
+    
+    def projection3(self, z: torch.Tensor) -> torch.Tensor:
+        z = F.elu(self.fc5(z.t()))
+        return self.fc6(z)
 
     def sim(self, z1: torch.Tensor, z2: torch.Tensor):
         z1 = F.normalize(z1)
@@ -104,25 +127,31 @@ class Model(torch.nn.Module):
 
 
 
-    def contra_loss(self, z1: torch.Tensor, z2: torch.Tensor,
+    def contra_loss(self, z1: torch.Tensor, z2: torch.Tensor, z3: torch.Tensor,
              mean: bool = True):
         h1 = self.projection1(z1)
         h2 = self.projection2(z2)
+        h3 = self.projection3(z3)
 
         ret = self.semi_loss(h1, h2)
+        ret2 = self.semi_loss(h1, h3)
+        ret3 = self.semi_loss(h2, h3)
         # l2 = self.semi_loss(h2, h1)
 
         # ret = (l1 + l2) * 0.5
         # ret = l1
         ret = ret.mean() if mean else ret.sum()
+        ret2 = ret2.mean() if mean else ret2.sum()
+        ret3 = ret3.mean() if mean else ret3.sum()
 
-        return ret
+        return (ret + ret2 + ret3) / 3
 
     def forward(self):
         # self.V1 = F.normalize(self.V['net' + str(len(self.net_shape) - 1)], p=2, dim=0)
         # self.V2 = F.normalize(self.V['att' + str(len(self.att_shape) - 1)], p=2, dim=0)
         self.V1 = self.V['net' + str(len(self.net_shape) - 1)]
         self.V2 = self.V['att' + str(len(self.att_shape) - 1)]
+        self.V3 = self.V['cv' + str(len(self.cv_shape) - 1)]
         # print('V1:', self.V1.shape)
         # print('V2:', self.V2)
         # return 0.5 * self.V1 + 0.5 * self.V2
@@ -132,11 +161,13 @@ class Model(torch.nn.Module):
 
         A = graph.A
         X = graph.X.T
+        C = graph.C
         # D = torch.diag(torch.sum(graph.A, dim=1))
         # D_S = torch.diag(torch.sum(graph.A, dim=1).pow(-0.5))
         # L = torch.mm(torch.mm(D_S, D - graph.A), D_S)
         # print(L)
         L = torch.diag(torch.sum(graph.A, dim=1)) - A
+        L_C = torch.diag(torch.sum(graph.C, dim = 1)) - C
         # XS = torch.from_numpy(rbf_kernel(graph.X.cpu())).to(self.device)
         # DX = torch.diag(torch.sum(XS, dim=1))
         # DX_S = torch.diag(torch.sum(XS, dim=1).pow(-0.5))
@@ -162,9 +193,20 @@ class Model(torch.nn.Module):
         P2 = torch.mm(P2, self.V['att' + str(i)])
         loss2 = torch.square(torch.norm(X - P2))
         # print('done:loss2', loss2)
+        
+        # reconstruction
+        P6 = torch.eye(self.cv_input_dim, device=self.device)
+        # print(P1)
+        # print(self.U['net0'])
+        for i in range(len(self.cv_shape)):
+            P6 = torch.mm(P6, self.U['cv' + str(i)])
+        i = len(self.cv_shape) - 1
+        P6 = torch.mm(P6, self.V['cv' + str(i)])
+        loss6 = torch.square(torch.norm(C - P6))
+        # print('done:loss1', loss1)
 
         # contrastive loss
-        loss3 = self.contra_loss(self.V1, self.V2)
+        loss3 = self.contra_loss(self.V1, self.V2, self.V3)
         # print('done:loss3', loss3)
 
         # regularization loss
@@ -178,9 +220,12 @@ class Model(torch.nn.Module):
         # print(self.V['net' + str(i)])
         # TX = torch.mm(self.V['att' + str(i)], L)
         MX = torch.mm(torch.mm(self.V['att' + str(i)], L), self.V['att' + str(i)].t())
-        loss4 = torch.trace(M) + torch.trace(MX)
+        # loss4 = torch.trace(M) + torch.trace(MX)
         # loss4 = torch.trace(M)
         # print('done:loss4', loss4)
+        
+        MC = torch.mm(torch.mm(self.V['cv' + str(i)], L_C), self.V['cv' + str(i)].t())
+        loss4 = torch.trace(M) + torch.trace(MX) + torch.trace(MC)
 
         # nonnegative loss item
         loss5 = 0
@@ -200,17 +245,26 @@ class Model(torch.nn.Module):
         zero2 = torch.zeros_like(self.V['att' + str(i)])
         X2 = torch.where(self.V['att' + str(i)] > 0, zero2, self.V['att' + str(i)])
         loss5 = loss5 + torch.square(torch.norm(X2))
+        
+        for i in range(len(self.cv_shape)):
+            zero3 = torch.zeros_like(self.U['cv' + str(i)])
+            X3 = torch.where(self.U['cv' + str(i)] > 0, zero3, self.U['cv' + str(i)])
+            loss5 = loss5 + torch.square(torch.norm(X3))
+        i = len(self.cv_shape) - 1
+        zero3 = torch.zeros_like(self.V['cv' + str(i)])
+        X3 = torch.where(self.V['cv' + str(i)] > 0, zero3, self.V['cv' + str(i)])
+        loss5 = loss5 + torch.square(torch.norm(X3))
         # loss5 = -(torch.sum(X1) + torch.sum(X2))
         # print('done:loss5', loss5)
 
-        loss = self.rec*(loss1 + loss2) + self.conc*loss3 + self.r*loss4 + self.negc*loss5
+        loss = self.rec*(loss1 + loss2 + loss6) + self.conc*loss3 + self.r*loss4 + self.negc*loss5
         # print('done:loss', loss)
 
         # for i in range(len(self.net_shape)):
         #     print(self. U['net' + str(i)].shape)
 
 
-        return loss, loss1, loss2, loss3, loss4, loss5
+        return loss, loss1, loss2, loss3, loss4, loss5, loss6
 
 
 
